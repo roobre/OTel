@@ -1,0 +1,131 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-gateway-conf
+  labels:
+    app: opentelemetry
+    component: otel-gateway-conf
+data:
+  otel-gateway-config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+          http:
+    processors:
+      batch:
+    extensions:
+      health_check: {}
+      zpages: {}
+    exporters:
+      otlp:
+        endpoint: otlp.nr-data.net:4317
+        headers:
+          api-key: redacted
+      prometheus:
+        endpoint: ":8080" # Listen address
+      prometheus/labeled:
+        endpoint: ":8081"
+        resource_to_telemetry_conversion:
+          enabled: true
+    service:
+      extensions: [health_check, zpages]
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp, prometheus, prometheus/labeled]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-gateway
+  labels:
+    app: opentelemetry
+    component: otel-gateway
+spec:
+  ports:
+  - name: otlp # Default endpoint for OpenTelemetry receiver.
+    port: 4317
+    protocol: TCP
+    targetPort: 4317
+  - name: zpages # Default endpoint for OpenTelemetry receiver.
+    port: 55679
+    protocol: TCP
+    targetPort: 55679
+  - name: prometheus # Default endpoint for OpenTelemetry receiver.
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  - name: prometheus-labeled # Default endpoint for OpenTelemetry receiver.
+    port: 8081
+    protocol: TCP
+    targetPort: 8081
+  selector:
+    component: otel-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-gateway
+  labels:
+    app: opentelemetry
+    component: otel-gateway
+spec:
+  selector:
+    matchLabels:
+      app: opentelemetry
+      component: otel-gateway
+  minReadySeconds: 5
+  progressDeadlineSeconds: 120
+  replicas: 1 #TODO - adjust this to your own requirements
+  template:
+    metadata:
+      labels:
+        app: opentelemetry
+        component: otel-gateway
+    spec:
+      containers:
+      - command:
+          - "/otelcol"
+          - "--config=/conf/otel-gateway-config.yaml"
+        image: otel/opentelemetry-collector-dev:latest
+        name: otel-gateway
+        resources:
+          limits:
+            cpu: 200m
+            memory: 500M
+          requests:
+            cpu: 10m
+            memory: 100Mi
+        ports:
+        - containerPort: 4317 # Default endpoint for OpenTelemetry receiver.
+        - containerPort: 55679 # Zpages
+        - containerPort: 8080 # Prometheus exporter
+        - containerPort: 8081 # Prometheus exporter
+        volumeMounts:
+        - name: otel-gateway-config-vol
+          mountPath: /conf
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133 # Health Check extension default port.
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133 # Health Check extension default port.
+      volumes:
+        - configMap:
+            name: otel-gateway-conf
+            items:
+              - key: otel-gateway-config
+                path: otel-gateway-config.yaml
+          name: otel-gateway-config-vol
+#        - secret:
+#            name: otel-gateway-secrets
+#            items:
+#              - key: cert.pem
+#                path: cert.pem
+#              - key: key.pem
+#                path: key.pem
