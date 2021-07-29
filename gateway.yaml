@@ -22,7 +22,7 @@ data:
       otlp:
         endpoint: otlp.nr-data.net:4317
         headers:
-          api-key: redacted
+          api-key: ${NR_API_KEY}
       prometheus:
         endpoint: ":8080" # Listen address
       prometheus/labeled:
@@ -92,6 +92,12 @@ spec:
           - "--config=/conf/otel-gateway-config.yaml"
         image: otel/opentelemetry-collector-dev:latest
         name: otel-gateway
+        env:
+          - name: NR_API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: NR_API_KEY
+                name: otel-nr-secret
         resources:
           limits:
             cpu: 200m
